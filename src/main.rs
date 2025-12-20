@@ -1,0 +1,128 @@
+use chrono::{DateTime, TimeDelta, Utc};
+use chrono_tz::Tz;
+use chrono_tz::US::Pacific;
+use crossterm::{QueueableCommand, cursor};
+use serde::Deserialize;
+use serenity::builder::ExecuteWebhook;
+use serenity::http::Http;
+use serenity::model::webhook::Webhook;
+use std::fs;
+use std::io::{Write, stdout};
+use std::process::{Command, Stdio};
+use std::{thread, time};
+use toml;
+
+#[derive(Deserialize, Debug)]
+struct Config {
+    webhook_url: String,
+    poll_seconds: u64,
+}
+
+fn sleep_seconds(num_sec_to_sleep: &u64) {
+    let seconds_to_sleep = time::Duration::from_secs(*num_sec_to_sleep);
+    thread::sleep(seconds_to_sleep);
+}
+
+fn format_timedelta_hhmmss(delta: TimeDelta) -> String {
+    let total_seconds = delta.num_seconds();
+    let mut formatted_string: String = "".to_string();
+    let hours = total_seconds / 3600;
+    let minutes = (total_seconds % 3600) / 60;
+    let seconds = total_seconds % 60;
+    if hours > 0 {
+        let hours_string = format!("{} hours ", hours);
+        formatted_string += &hours_string;
+    }
+    if minutes > 0 {
+        let minutes_string = format!("{} minutes ", minutes);
+        formatted_string += &minutes_string;
+    }
+    if seconds > 0 {
+        let seconds_string = format!("{} seconds ", seconds);
+        formatted_string += &seconds_string;
+    }
+    // remove the trailing space
+    formatted_string.pop();
+    return formatted_string;
+}
+
+async fn send_discord_message(
+    message: String,
+    webhook_url: &String,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let http = Http::new("");
+    match Webhook::from_url(&http, &webhook_url).await {
+        Ok(data) => {
+            let builder = ExecuteWebhook::new().content(message).username("JoshBot");
+            data.execute(&http, false, builder).await?;
+        }
+        Err(e) => {
+            eprintln!("Failed to send discord message: {:?}", e);
+        }
+    };
+    return Ok(());
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut stdout = stdout();
+    let script_start_time = Utc::now().with_timezone(&Pacific);
+    println!(
+        "Internet Outage Duration Discord Notifier 0.1.0 initialized on {}.",
+        script_start_time.format("%m/%d/%Y %r")
+    );
+    let mut times_checked = 0;
+
+    let toml_content = fs::read_to_string("config.toml")?;
+    let config: Config = toml::from_str(&toml_content)?;
+
+    let google_dns_ip_address = "8.8.8.8";
+    let mut internet_outage_start_time: Option<DateTime<Tz>> = None;
+
+    loop {
+        times_checked += 1;
+        stdout.queue(cursor::SavePosition).unwrap();
+        stdout
+            .write_all(format!("Checked {} times", times_checked).as_bytes())
+            .unwrap();
+        stdout.queue(cursor::RestorePosition).unwrap();
+        stdout.flush().unwrap();
+
+        let ping_google_ip_result = Command::new("ping")
+            .arg(google_dns_ip_address)
+            .arg("-c")
+            // check 3 times to ensure that it wasn't just a one-time fluke
+            .arg("3")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .expect("Checking if we have an internet connection");
+        if !ping_google_ip_result.success() {
+            // only set the internet_outage_start_time when the internet first goes out, otherwise
+            // the time will be continuously updated even though it's the same outage
+            if internet_outage_start_time.is_none() {
+                internet_outage_start_time = Some(Utc::now().with_timezone(&Pacific));
+                println!(
+                    "The internet went down at {}!",
+                    internet_outage_start_time.unwrap().format("%m/%d/%Y %r")
+                );
+            }
+            sleep_seconds(&config.poll_seconds);
+            continue;
+        }
+        if internet_outage_start_time.is_some() {
+            let outage_duration =
+                Utc::now().with_timezone(&Pacific) - internet_outage_start_time.unwrap();
+            let outage_duration_hhmmss = format_timedelta_hhmmss(outage_duration);
+            let internet_outage_message = format!(
+                "@everyone The internet went out at {} but is now back online. The outage lasted {}.",
+                internet_outage_start_time.unwrap().format("%m/%d/%Y %r"),
+                outage_duration_hhmmss
+            );
+            send_discord_message(internet_outage_message, &config.webhook_url).await?;
+            internet_outage_start_time = None;
+        }
+
+        sleep_seconds(&config.poll_seconds);
+    }
+}
