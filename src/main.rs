@@ -122,6 +122,11 @@ async fn main() -> Result<()> {
         "Config option `poll_seconds` must be >= 3"
     );
 
+    anyhow::ensure!(
+        !config.webhook_url.trim().is_empty(),
+        "Config option `webhook_url` must not be blank"
+    );
+
     let mut internet_outage_start_time: Option<DateTime<Utc>> = None;
     // Webhooks don't require a bot token
     let http = Http::new("");
