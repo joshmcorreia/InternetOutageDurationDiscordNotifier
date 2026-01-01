@@ -58,10 +58,8 @@ async fn internet_is_up() -> Result<bool, std::io::Error> {
     Ok(ping_google_ip_result.success())
 }
 
-async fn send_discord_message(http: &Http, message: &str, webhook_url: &str) -> Result<()> {
-    let webhook = Webhook::from_url(http, webhook_url).await?;
+async fn send_discord_message(http: &Http, webhook: &Webhook, message: &str) -> Result<()> {
     let builder = ExecuteWebhook::new().content(message).username("JoshBot");
-
     webhook.execute(http, false, builder).await?;
     Ok(())
 }
@@ -94,6 +92,7 @@ async fn main() -> Result<()> {
 
     let mut internet_outage_start_time: Option<DateTime<Utc>> = None;
     let http = Http::new("");
+    let webhook = Webhook::from_url(&http, &config.webhook_url).await?;
 
     loop {
         if !internet_is_up().await? {
@@ -111,7 +110,7 @@ async fn main() -> Result<()> {
                 outage_duration_hhmmss
             );
             log::info!("{}", internet_outage_message);
-            send_discord_message(&http, &internet_outage_message, &config.webhook_url).await?;
+            send_discord_message(&http, &webhook, &internet_outage_message).await?;
             internet_outage_start_time = None;
         }
 
