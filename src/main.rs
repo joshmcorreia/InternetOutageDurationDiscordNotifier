@@ -113,26 +113,32 @@ async fn main() -> Result<()> {
 
     let config_file = "config.toml";
     let toml_content = fs::read_to_string(config_file)
-        .with_context(|| format!("Failed to read {}", config_file))?;
+        .with_context(|| format!("Failed to read `{}`", config_file))?;
     let config: Config = toml::from_str(&toml_content)
-        .with_context(|| format!("Failed to parse {}", config_file))?;
+        .with_context(|| format!("Failed to parse `{}`", config_file))?;
 
     anyhow::ensure!(
         config.poll_seconds >= 3,
         "Config option `poll_seconds` must be >= 3"
     );
-
     anyhow::ensure!(
         !config.webhook_url.trim().is_empty(),
-        "Config option `webhook_url` must not be blank"
+        "Config option `webhook_url` is blank"
     );
 
-    let mut internet_outage_start_time: Option<DateTime<Utc>> = None;
     // Webhooks don't require a bot token
     let http = Http::new("");
 
+    let mut internet_outage_start_time: Option<DateTime<Utc>> = None;
+    let mut interval = tokio::time::interval(Duration::from_secs(config.poll_seconds));
+
     loop {
-        if !internet_is_up().await.context("Failed to check internet connectivity")? {
+        interval.tick().await;
+
+        if !internet_is_up()
+            .await
+            .context("Failed to check internet connectivity")?
+        {
             if internet_outage_start_time.is_none() {
                 let start_utc = Utc::now();
                 internet_outage_start_time = Some(start_utc);
@@ -154,7 +160,5 @@ async fn main() -> Result<()> {
                 })?;
             internet_outage_start_time = None;
         }
-
-        sleep(Duration::from_secs(config.poll_seconds)).await;
     }
 }
