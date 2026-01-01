@@ -6,9 +6,12 @@ use serenity::builder::ExecuteWebhook;
 use serenity::http::Http;
 use serenity::model::webhook::Webhook;
 use std::fs;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
+use tokio::process::Command;
 use tokio::time::{Duration, sleep};
 use toml;
+
+const GOOGLE_IP_ADDRESS: &str = "8.8.8.8";
 
 #[derive(Deserialize, Debug)]
 struct Config {
@@ -44,16 +47,13 @@ async fn send_discord_message(
     message: &str,
     webhook_url: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    match Webhook::from_url(&http, &webhook_url).await {
-        Ok(data) => {
-            let builder = ExecuteWebhook::new().content(message).username("JoshBot");
-            data.execute(&http, false, builder).await?;
-        }
-        Err(e) => {
-            eprintln!("Failed to send discord message: {:?}", e);
-        }
-    };
-    return Ok(());
+    let webhook = Webhook::from_url(http, webhook_url).await?;
+    let builder = ExecuteWebhook::new()
+        .content(message)
+        .username("JoshBot");
+
+    webhook.execute(http, false, builder).await?;
+    Ok(())
 }
 
 #[tokio::main]
@@ -67,21 +67,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let toml_content = fs::read_to_string("config.toml")?;
     let config: Config = toml::from_str(&toml_content)?;
 
-    let google_dns_ip_address = "8.8.8.8";
     let mut internet_outage_start_time: Option<DateTime<Tz>> = None;
 
     let http = Http::new("");
 
     loop {
+        // I'm intentionally pinging google's IP address because this tool is only
+        // meant to check internet connectivity. If we ping by hostname then we're
+        // also checking DNS which often goes down when doing homelab experiments :)
         let ping_google_ip_result = Command::new("ping")
-            .arg(google_dns_ip_address)
+            .arg(GOOGLE_IP_ADDRESS)
             .arg("-c")
             // check 3 times to ensure that it wasn't just a one-time fluke
             .arg("3")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()
-            .expect("Checking if we have an internet connection");
+            .await?;
         if !ping_google_ip_result.success() {
             // only set the internet_outage_start_time when the internet first goes out, otherwise
             // the time will be continuously updated even though it's the same outage
