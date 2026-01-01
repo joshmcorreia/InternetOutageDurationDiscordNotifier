@@ -1,13 +1,11 @@
 use chrono::{DateTime, TimeDelta, Utc};
 use chrono_tz::Tz;
 use chrono_tz::US::Pacific;
-use crossterm::{QueueableCommand, cursor};
 use serde::Deserialize;
 use serenity::builder::ExecuteWebhook;
 use serenity::http::Http;
 use serenity::model::webhook::Webhook;
 use std::fs;
-use std::io::{Write, stdout};
 use std::process::{Command, Stdio};
 use std::{thread, time};
 use toml;
@@ -65,13 +63,11 @@ async fn send_discord_message(
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut stdout = stdout();
     let script_start_time = Utc::now().with_timezone(&Pacific);
     println!(
         "Internet Outage Duration Discord Notifier 0.1.0 initialized on {}.",
         script_start_time.format("%m/%d/%Y %r")
     );
-    let mut times_checked = 0;
 
     let toml_content = fs::read_to_string("config.toml")?;
     let config: Config = toml::from_str(&toml_content)?;
@@ -80,14 +76,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut internet_outage_start_time: Option<DateTime<Tz>> = None;
 
     loop {
-        times_checked += 1;
-        stdout.queue(cursor::SavePosition).unwrap();
-        stdout
-            .write_all(format!("Checked {} times", times_checked).as_bytes())
-            .unwrap();
-        stdout.queue(cursor::RestorePosition).unwrap();
-        stdout.flush().unwrap();
-
         let ping_google_ip_result = Command::new("ping")
             .arg(google_dns_ip_address)
             .arg("-c")
