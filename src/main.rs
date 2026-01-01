@@ -21,7 +21,7 @@ struct Config {
     poll_seconds: u64,
 }
 
-fn format_timedelta_hhmmss(delta: TimeDelta) -> String {
+fn format_timedelta_human(delta: TimeDelta) -> String {
     let total_seconds = delta.num_seconds().max(0);
 
     let hours = total_seconds / 3600;
@@ -63,20 +63,32 @@ async fn internet_is_up() -> Result<bool> {
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
-        .await?;
+        .await
+        .context("Failed to ping Google")?;
 
     Ok(status.success())
 }
 
 async fn send_discord_message(http: &Http, message: &str, webhook_url: &str) -> Result<()> {
-    let webhook = Webhook::from_url(http, webhook_url).await?;
+    let webhook = Webhook::from_url(http, webhook_url)
+        .await
+        .with_context(|| {
+            format!(
+                "Failed to create Discord webhook from URL `{}`",
+                webhook_url
+            )
+        })?;
     let builder = ExecuteWebhook::new().content(message).username(BOT_NAME);
-    webhook.execute(http, false, builder).await?;
+    webhook
+        .execute(http, false, builder)
+        .await
+        .context("Failed to execute Discord webhook")?;
     Ok(())
 }
 
 fn init_logger() -> Result<()> {
-    Logger::try_with_str("info")?
+    Logger::try_with_str("info")
+        .context("Invalid logger configuration")?
         .log_to_file(FileSpec::default().directory("logs").basename("app"))
         .duplicate_to_stdout(Duplicate::All)
         .write_mode(WriteMode::BufferAndFlush)
@@ -89,7 +101,8 @@ fn init_logger() -> Result<()> {
                 record.args()
             )
         })
-        .start()?;
+        .start()
+        .context("Failed to start logger")?;
     Ok(())
 }
 
@@ -99,21 +112,22 @@ async fn main() -> Result<()> {
     log::info!("Internet Outage Duration Discord Notifier v0.1.0 started");
 
     let config_file = "config.toml";
-    let toml_content =
-        fs::read_to_string(config_file).context(format!("Failed to read {}", config_file))?;
-    let config: Config =
-        toml::from_str(&toml_content).context(format!("Failed to parse {}", config_file))?;
+    let toml_content = fs::read_to_string(config_file)
+        .with_context(|| format!("Failed to read {}", config_file))?;
+    let config: Config = toml::from_str(&toml_content)
+        .with_context(|| format!("Failed to parse {}", config_file))?;
 
-    if config.poll_seconds < 3 {
-        anyhow::bail!("Config option poll_seconds must be >= 3");
-    }
+    anyhow::ensure!(
+        config.poll_seconds >= 3,
+        "Config option `poll_seconds` must be >= 3"
+    );
 
     let mut internet_outage_start_time: Option<DateTime<Utc>> = None;
     // Webhooks don't require a bot token
     let http = Http::new("");
 
     loop {
-        if !internet_is_up().await? {
+        if !internet_is_up().await.context("Failed to check internet connectivity")? {
             if internet_outage_start_time.is_none() {
                 let start_utc = Utc::now();
                 internet_outage_start_time = Some(start_utc);
@@ -121,7 +135,7 @@ async fn main() -> Result<()> {
             }
         } else if let Some(start_utc) = internet_outage_start_time {
             let outage_duration = Utc::now() - start_utc;
-            let outage_duration_hhmmss = format_timedelta_hhmmss(outage_duration);
+            let outage_duration_hhmmss = format_timedelta_human(outage_duration);
             let internet_outage_message = format!(
                 "@everyone The internet went out at {} but is now back online. The outage lasted {}.",
                 start_utc.with_timezone(&Pacific).format("%m/%d/%Y %r"),
@@ -130,7 +144,9 @@ async fn main() -> Result<()> {
             log::info!("{}", internet_outage_message);
             send_discord_message(&http, &internet_outage_message, &config.webhook_url)
                 .await
-                .context("Failed to send Discord webhook")?;
+                .with_context(|| {
+                    format!("Failed to send Discord webhook to {}", config.webhook_url)
+                })?;
             internet_outage_start_time = None;
         }
 
