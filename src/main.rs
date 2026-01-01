@@ -129,7 +129,9 @@ async fn main() -> Result<()> {
                                 start_utc.with_timezone(&Pacific).format("%m/%d/%Y %r"),
                                 duration_formatted
                             );
-                            log::info!("{}", internet_outage_message);
+                            log::info!("The internet is back online. The outage lasted {}.",
+                                duration_formatted
+                            );
 
                             if let Err(err) = send_discord_message(&http, &webhook, &internet_outage_message).await {
                                 log::error!("Failed to send Discord webhook: {:?}", err);
