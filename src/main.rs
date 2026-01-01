@@ -43,7 +43,7 @@ fn format_timedelta_hhmmss(delta: TimeDelta) -> String {
     parts.join(" ")
 }
 
-async fn internet_is_up() -> Result<bool, std::io::Error> {
+async fn internet_is_up() -> Result<bool> {
     // I'm intentionally pinging google's IP address because this tool is only
     // meant to check internet connectivity. If we ping by hostname then we're
     // also checking DNS which often goes down when doing homelab experiments :)
@@ -59,16 +59,13 @@ async fn internet_is_up() -> Result<bool, std::io::Error> {
         cmd.args([GOOGLE_IP_ADDRESS, "-c", "3"]);
     }
 
-    let ping_google_ip_result = Command::new("ping")
-        .arg(GOOGLE_IP_ADDRESS)
-        .arg("-c")
-        .arg("3")
+    let status = cmd
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
         .await?;
 
-    Ok(ping_google_ip_result.success())
+    Ok(status.success())
 }
 
 async fn send_discord_message(http: &Http, message: &str, webhook_url: &str) -> Result<()> {
