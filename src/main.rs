@@ -29,13 +29,9 @@ async fn internet_is_up() -> Result<bool> {
     // also checking DNS which often goes down when doing homelab experiments :)
     let mut cmd = Command::new("ping");
 
-    #[cfg(target_os = "windows")]
-    {
+    if cfg!(windows) {
         cmd.args([GOOGLE_IP_ADDRESS, "-n", "3"]);
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
+    } else {
         cmd.args([GOOGLE_IP_ADDRESS, "-c", "3"]);
     }
 
