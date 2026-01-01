@@ -17,6 +17,11 @@ use toml;
 const GOOGLE_IP_ADDRESS: &str = "8.8.8.8";
 const BOT_NAME: &str = "JoshBot";
 
+#[cfg(windows)]
+const PING_ARGS: [&str; 3] = [GOOGLE_IP_ADDRESS, "-n", "3"];
+#[cfg(not(windows))]
+const PING_ARGS: [&str; 3] = [GOOGLE_IP_ADDRESS, "-c", "3"];
+
 #[derive(Deserialize, Debug)]
 struct Config {
     webhook_url: String,
@@ -27,15 +32,8 @@ async fn internet_is_up() -> Result<bool> {
     // I'm intentionally pinging google's IP address because this tool is only
     // meant to check internet connectivity. If we ping by hostname then we're
     // also checking DNS which often goes down when doing homelab experiments :)
-    let mut cmd = Command::new("ping");
-
-    if cfg!(windows) {
-        cmd.args([GOOGLE_IP_ADDRESS, "-n", "3"]);
-    } else {
-        cmd.args([GOOGLE_IP_ADDRESS, "-c", "3"]);
-    }
-
-    let status = cmd
+    let status = Command::new("ping")
+        .args(PING_ARGS)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
@@ -45,15 +43,7 @@ async fn internet_is_up() -> Result<bool> {
     Ok(status.success())
 }
 
-async fn send_discord_message(http: &Http, message: &str, webhook_url: &str) -> Result<()> {
-    let webhook = Webhook::from_url(http, webhook_url)
-        .await
-        .with_context(|| {
-            format!(
-                "Failed to create Discord webhook from URL `{}`",
-                webhook_url
-            )
-        })?;
+async fn send_discord_message(http: &Http, webhook: &Webhook, message: &str) -> Result<()> {
     let builder = ExecuteWebhook::new().content(message).username(BOT_NAME);
     webhook
         .execute(http, false, builder)
@@ -72,7 +62,7 @@ fn init_logger() -> Result<()> {
             write!(
                 w,
                 "{} [{}] {}",
-                now.now().format("%m/%d/%Y %-I:%M:%S %p"),
+                now.format("%m/%d/%Y %-I:%M:%S %p"),
                 record.level(),
                 record.args()
             )
@@ -104,6 +94,9 @@ async fn main() -> Result<()> {
 
     // Webhooks don't require a bot token
     let http = Http::new("");
+    let webhook = Webhook::from_url(&http, &config.webhook_url)
+        .await
+        .context("Failed to create Discord webhook")?;
 
     let mut internet_outage_start_time: Option<DateTime<Utc>> = None;
     let mut interval = tokio::time::interval(Duration::from_secs(config.poll_seconds));
@@ -131,7 +124,7 @@ async fn main() -> Result<()> {
                 duration_formatted
             );
             log::info!("{}", internet_outage_message);
-            send_discord_message(&http, &internet_outage_message, &config.webhook_url)
+            send_discord_message(&http, &webhook, &internet_outage_message)
                 .await
                 .with_context(|| {
                     format!("Failed to send Discord webhook to {}", config.webhook_url)
