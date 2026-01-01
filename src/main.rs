@@ -9,9 +9,8 @@ use serenity::http::Http;
 use serenity::model::webhook::Webhook;
 use std::fs;
 use std::process::Stdio;
-use std::time::Duration as StdDuration;
+use std::time::Duration;
 use tokio::process::Command;
-use tokio::time::Duration;
 use toml;
 
 const GOOGLE_IP_ADDRESS: &str = "8.8.8.8";
@@ -99,7 +98,7 @@ async fn main() -> Result<()> {
         .context("Failed to create Discord webhook")?;
 
     let mut internet_outage_start_time: Option<DateTime<Utc>> = None;
-    let mut interval = tokio::time::interval(Duration::from_secs(config.poll_seconds));
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(config.poll_seconds));
 
     loop {
         interval.tick().await;
@@ -115,7 +114,7 @@ async fn main() -> Result<()> {
         } else if let Some(start_utc) = internet_outage_start_time.take() {
             let outage_duration = Utc::now() - start_utc;
             let duration_formatted =
-                format_duration(StdDuration::from_secs(outage_duration.num_seconds() as u64))
+                format_duration(Duration::from_secs(outage_duration.num_seconds() as u64))
                     .to_string();
 
             let internet_outage_message = format!(
