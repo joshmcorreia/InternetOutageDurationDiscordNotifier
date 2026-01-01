@@ -13,6 +13,7 @@ use tokio::time::{Duration, sleep};
 use toml;
 
 const GOOGLE_IP_ADDRESS: &str = "8.8.8.8";
+const BOT_NAME: &str = "JoshBot";
 
 #[derive(Deserialize, Debug)]
 struct Config {
@@ -46,6 +47,18 @@ async fn internet_is_up() -> Result<bool, std::io::Error> {
     // I'm intentionally pinging google's IP address because this tool is only
     // meant to check internet connectivity. If we ping by hostname then we're
     // also checking DNS which often goes down when doing homelab experiments :)
+    let mut cmd = Command::new("ping");
+
+    #[cfg(target_os = "windows")]
+    {
+        cmd.args([GOOGLE_IP_ADDRESS, "-n", "3"]);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        cmd.args([GOOGLE_IP_ADDRESS, "-c", "3"]);
+    }
+
     let ping_google_ip_result = Command::new("ping")
         .arg(GOOGLE_IP_ADDRESS)
         .arg("-c")
@@ -58,8 +71,9 @@ async fn internet_is_up() -> Result<bool, std::io::Error> {
     Ok(ping_google_ip_result.success())
 }
 
-async fn send_discord_message(http: &Http, webhook: &Webhook, message: &str) -> Result<()> {
-    let builder = ExecuteWebhook::new().content(message).username("JoshBot");
+async fn send_discord_message(http: &Http, message: &str, webhook_url: &str) -> Result<()> {
+    let webhook = Webhook::from_url(http, webhook_url).await?;
+    let builder = ExecuteWebhook::new().content(message).username(BOT_NAME);
     webhook.execute(http, false, builder).await?;
     Ok(())
 }
@@ -87,12 +101,19 @@ async fn main() -> Result<()> {
     init_logger().context("Failed to initialize logger")?;
     log::info!("Internet Outage Duration Discord Notifier v0.1.0 started");
 
-    let toml_content = fs::read_to_string("config.toml")?;
-    let config: Config = toml::from_str(&toml_content)?;
+    let config_file = "config.toml";
+    let toml_content =
+        fs::read_to_string(config_file).context(format!("Failed to read {}", config_file))?;
+    let config: Config =
+        toml::from_str(&toml_content).context(format!("Failed to parse {}", config_file))?;
+
+    if config.poll_seconds < 3 {
+        anyhow::bail!("Config option poll_seconds must be >= 3");
+    }
 
     let mut internet_outage_start_time: Option<DateTime<Utc>> = None;
+    // Webhooks don't require a bot token
     let http = Http::new("");
-    let webhook = Webhook::from_url(&http, &config.webhook_url).await?;
 
     loop {
         if !internet_is_up().await? {
@@ -110,7 +131,9 @@ async fn main() -> Result<()> {
                 outage_duration_hhmmss
             );
             log::info!("{}", internet_outage_message);
-            send_discord_message(&http, &webhook, &internet_outage_message).await?;
+            send_discord_message(&http, &internet_outage_message, &config.webhook_url)
+                .await
+                .context("Failed to send Discord webhook")?;
             internet_outage_start_time = None;
         }
 
