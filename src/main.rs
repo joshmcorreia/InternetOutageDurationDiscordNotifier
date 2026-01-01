@@ -110,31 +110,35 @@ async fn main() -> Result<()> {
             },
 
             _ = tokio::time::sleep(poll_duration) => {
-                if !internet_is_up()
-                    .await
-                    .context("Failed to check internet connectivity")?
-                {
-                    if internet_outage_start_time.is_none() {
-                        internet_outage_start_time = Some(Utc::now());
-                        log::info!("The internet went down!");
+                match internet_is_up().await {
+                    Ok(false) => {
+                        if internet_outage_start_time.is_none() {
+                            internet_outage_start_time = Some(Utc::now());
+                            log::info!("The internet went down!");
+                        }
                     }
-                } else if let Some(start_utc) = internet_outage_start_time.take() {
-                    let outage_duration = Utc::now() - start_utc;
-                    let duration_formatted =
-                        format_duration(Duration::from_secs(outage_duration.num_seconds() as u64))
-                            .to_string();
+                    Ok(true) => {
+                        if let Some(start_utc) = internet_outage_start_time.take() {
+                            let outage_duration = Utc::now() - start_utc;
+                            let duration_formatted =
+                                format_duration(Duration::from_secs(outage_duration.num_seconds() as u64))
+                                    .to_string();
 
-                    let internet_outage_message = format!(
-                        "@everyone The internet went out at {} but is now back online. The outage lasted {}.",
-                        start_utc.with_timezone(&Pacific).format("%m/%d/%Y %r"),
-                        duration_formatted
-                    );
-                    log::info!("{}", internet_outage_message);
-                    send_discord_message(&http, &webhook, &internet_outage_message)
-                        .await
-                        .with_context(|| {
-                            format!("Failed to send Discord webhook to `{}`", config.webhook_url)
-                        })?;
+                            let internet_outage_message = format!(
+                                "@everyone The internet went out at {} but is now back online. The outage lasted {}.",
+                                start_utc.with_timezone(&Pacific).format("%m/%d/%Y %r"),
+                                duration_formatted
+                            );
+                            log::info!("{}", internet_outage_message);
+
+                            if let Err(err) = send_discord_message(&http, &webhook, &internet_outage_message).await {
+                                log::error!("Failed to send Discord webhook: {:?}", err);
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        log::error!("Failed to check internet connectivity: {:?}", err);
+                    }
                 }
             }
         }
