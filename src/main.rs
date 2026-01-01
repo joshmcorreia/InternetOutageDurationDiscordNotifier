@@ -37,8 +37,11 @@ fn format_timedelta_hhmmss(delta: TimeDelta) -> String {
         let seconds_string = format!("{} seconds ", seconds);
         formatted_string += &seconds_string;
     }
-    // remove the trailing space
-    formatted_string.pop();
+
+    if !formatted_string.is_empty() {
+        // remove the trailing space
+        formatted_string.pop();
+    }
     return formatted_string;
 }
 
@@ -87,8 +90,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     loop {
         if !internet_is_up().await? {
-            // only set the internet_outage_start_time when the internet first goes out, otherwise
-            // the time will be continuously updated even though it's the same outage
             if internet_outage_start_time.is_none() {
                 internet_outage_start_time = Some(Utc::now().with_timezone(&Pacific));
                 println!(
@@ -96,10 +97,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     internet_outage_start_time.unwrap().format("%m/%d/%Y %r")
                 );
             }
-            sleep(Duration::from_secs(config.poll_seconds)).await;
-            continue;
         }
-        if internet_outage_start_time.is_some() {
+        else if internet_outage_start_time.is_some() {
             let outage_duration =
                 Utc::now().with_timezone(&Pacific) - internet_outage_start_time.unwrap();
             let outage_duration_hhmmss = format_timedelta_hhmmss(outage_duration);
