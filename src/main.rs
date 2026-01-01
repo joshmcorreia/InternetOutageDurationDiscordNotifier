@@ -40,10 +40,10 @@ fn format_timedelta_hhmmss(delta: TimeDelta) -> String {
 }
 
 async fn send_discord_message(
-    message: String,
-    webhook_url: &String,
+    http: &Http,
+    message: &str,
+    webhook_url: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let http = Http::new("");
     match Webhook::from_url(&http, &webhook_url).await {
         Ok(data) => {
             let builder = ExecuteWebhook::new().content(message).username("JoshBot");
@@ -69,6 +69,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let google_dns_ip_address = "8.8.8.8";
     let mut internet_outage_start_time: Option<DateTime<Tz>> = None;
+
+    let http = Http::new("");
 
     loop {
         let ping_google_ip_result = Command::new("ping")
@@ -102,7 +104,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 internet_outage_start_time.unwrap().format("%m/%d/%Y %r"),
                 outage_duration_hhmmss
             );
-            send_discord_message(internet_outage_message, &config.webhook_url).await?;
+            send_discord_message(&http, &internet_outage_message, &config.webhook_url).await?;
             internet_outage_start_time = None;
         }
 
