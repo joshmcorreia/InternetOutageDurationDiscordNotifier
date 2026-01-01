@@ -53,7 +53,7 @@ async fn send_discord_message(http: &Http, webhook: &Webhook, message: &str) -> 
 }
 
 fn init_logger() -> Result<()> {
-    Logger::try_with_str("info")
+    Logger::try_with_str("info,serenity=warn")
         .context("Invalid logger configuration")?
         .log_to_file(FileSpec::default().directory("logs").basename("app"))
         .duplicate_to_stdout(Duplicate::All)
