@@ -74,7 +74,7 @@ fn init_logger() -> Result<()> {
 #[tokio::main]
 async fn main() -> Result<()> {
     init_logger().context("Failed to initialize logger")?;
-    log::info!("Internet Outage Duration Discord Notifier v0.1.0 started");
+    log::info!("Internet Outage Duration Discord Notifier v1.0.0 started");
 
     let config_file = "config.toml";
     let toml_content = fs::read_to_string(config_file)
