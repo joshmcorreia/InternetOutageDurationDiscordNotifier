@@ -7,18 +7,13 @@ use serenity::http::Http;
 use serenity::model::webhook::Webhook;
 use std::fs;
 use std::process::{Command, Stdio};
-use std::{thread, time};
+use tokio::time::{Duration, sleep};
 use toml;
 
 #[derive(Deserialize, Debug)]
 struct Config {
     webhook_url: String,
     poll_seconds: u64,
-}
-
-fn sleep_seconds(num_sec_to_sleep: &u64) {
-    let seconds_to_sleep = time::Duration::from_secs(*num_sec_to_sleep);
-    thread::sleep(seconds_to_sleep);
 }
 
 fn format_timedelta_hhmmss(delta: TimeDelta) -> String {
@@ -95,7 +90,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     internet_outage_start_time.unwrap().format("%m/%d/%Y %r")
                 );
             }
-            sleep_seconds(&config.poll_seconds);
+            sleep(Duration::from_secs(config.poll_seconds)).await;
             continue;
         }
         if internet_outage_start_time.is_some() {
@@ -111,6 +106,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             internet_outage_start_time = None;
         }
 
-        sleep_seconds(&config.poll_seconds);
+        sleep(Duration::from_secs(config.poll_seconds)).await;
     }
 }
