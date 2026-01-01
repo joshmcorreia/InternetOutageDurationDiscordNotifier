@@ -1,15 +1,17 @@
 use anyhow::{Context, Result};
-use chrono::{DateTime, TimeDelta, Utc};
+use chrono::{DateTime, Utc};
 use chrono_tz::US::Pacific;
 use flexi_logger::{Duplicate, FileSpec, Logger, WriteMode};
+use humantime::format_duration;
 use serde::Deserialize;
 use serenity::builder::ExecuteWebhook;
 use serenity::http::Http;
 use serenity::model::webhook::Webhook;
 use std::fs;
 use std::process::Stdio;
+use std::time::Duration as StdDuration;
 use tokio::process::Command;
-use tokio::time::{Duration, sleep};
+use tokio::time::Duration;
 use toml;
 
 const GOOGLE_IP_ADDRESS: &str = "8.8.8.8";
@@ -19,28 +21,6 @@ const BOT_NAME: &str = "JoshBot";
 struct Config {
     webhook_url: String,
     poll_seconds: u64,
-}
-
-fn format_timedelta_human(delta: TimeDelta) -> String {
-    let total_seconds = delta.num_seconds().max(0);
-
-    let hours = total_seconds / 3600;
-    let minutes = (total_seconds % 3600) / 60;
-    let seconds = total_seconds % 60;
-
-    let mut parts = Vec::new();
-
-    if hours > 0 {
-        parts.push(format!("{} hours", hours));
-    }
-    if minutes > 0 {
-        parts.push(format!("{} minutes", minutes));
-    }
-    if seconds > 0 || parts.is_empty() {
-        parts.push(format!("{} seconds", seconds));
-    }
-
-    parts.join(" ")
 }
 
 async fn internet_is_up() -> Result<bool> {
@@ -140,17 +120,19 @@ async fn main() -> Result<()> {
             .context("Failed to check internet connectivity")?
         {
             if internet_outage_start_time.is_none() {
-                let start_utc = Utc::now();
-                internet_outage_start_time = Some(start_utc);
+                internet_outage_start_time = Some(Utc::now());
                 log::info!("The internet went down!");
             }
-        } else if let Some(start_utc) = internet_outage_start_time {
+        } else if let Some(start_utc) = internet_outage_start_time.take() {
             let outage_duration = Utc::now() - start_utc;
-            let outage_duration_hhmmss = format_timedelta_human(outage_duration);
+            let duration_formatted =
+                format_duration(StdDuration::from_secs(outage_duration.num_seconds() as u64))
+                    .to_string();
+
             let internet_outage_message = format!(
                 "@everyone The internet went out at {} but is now back online. The outage lasted {}.",
                 start_utc.with_timezone(&Pacific).format("%m/%d/%Y %r"),
-                outage_duration_hhmmss
+                duration_formatted
             );
             log::info!("{}", internet_outage_message);
             send_discord_message(&http, &internet_outage_message, &config.webhook_url)
@@ -158,7 +140,6 @@ async fn main() -> Result<()> {
                 .with_context(|| {
                     format!("Failed to send Discord webhook to {}", config.webhook_url)
                 })?;
-            internet_outage_start_time = None;
         }
     }
 }
