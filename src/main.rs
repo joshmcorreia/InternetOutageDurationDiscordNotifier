@@ -21,7 +21,7 @@ struct Config {
 
 fn format_timedelta_hhmmss(delta: TimeDelta) -> String {
     let total_seconds = delta.num_seconds();
-    let mut formatted_string: String = "".to_string();
+    let mut formatted_string = String::new();
     let hours = total_seconds / 3600;
     let minutes = (total_seconds % 3600) / 60;
     let seconds = total_seconds % 60;
@@ -42,15 +42,29 @@ fn format_timedelta_hhmmss(delta: TimeDelta) -> String {
     return formatted_string;
 }
 
+async fn internet_is_up() -> Result<bool, std::io::Error> {
+    // I'm intentionally pinging google's IP address because this tool is only
+    // meant to check internet connectivity. If we ping by hostname then we're
+    // also checking DNS which often goes down when doing homelab experiments :)
+    let ping_google_ip_result = Command::new("ping")
+        .arg(GOOGLE_IP_ADDRESS)
+        .arg("-c")
+        .arg("3")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .await?;
+
+    Ok(ping_google_ip_result.success())
+}
+
 async fn send_discord_message(
     http: &Http,
     message: &str,
     webhook_url: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let webhook = Webhook::from_url(http, webhook_url).await?;
-    let builder = ExecuteWebhook::new()
-        .content(message)
-        .username("JoshBot");
+    let builder = ExecuteWebhook::new().content(message).username("JoshBot");
 
     webhook.execute(http, false, builder).await?;
     Ok(())
@@ -72,19 +86,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let http = Http::new("");
 
     loop {
-        // I'm intentionally pinging google's IP address because this tool is only
-        // meant to check internet connectivity. If we ping by hostname then we're
-        // also checking DNS which often goes down when doing homelab experiments :)
-        let ping_google_ip_result = Command::new("ping")
-            .arg(GOOGLE_IP_ADDRESS)
-            .arg("-c")
-            // check 3 times to ensure that it wasn't just a one-time fluke
-            .arg("3")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .await?;
-        if !ping_google_ip_result.success() {
+        if !internet_is_up().await? {
             // only set the internet_outage_start_time when the internet first goes out, otherwise
             // the time will be continuously updated even though it's the same outage
             if internet_outage_start_time.is_none() {
