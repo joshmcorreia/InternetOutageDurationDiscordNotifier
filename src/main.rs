@@ -98,36 +98,48 @@ async fn main() -> Result<()> {
         .context("Failed to create Discord webhook")?;
 
     let mut internet_outage_start_time: Option<DateTime<Utc>> = None;
-    let mut interval = tokio::time::interval(std::time::Duration::from_secs(config.poll_seconds));
+    // We have to use a poll duration instead of interval because interval doesn't
+    // currently catch Ctrl+C correctly
+    let poll_duration = std::time::Duration::from_secs(config.poll_seconds);
 
     loop {
-        interval.tick().await;
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {
+                log::info!("Ctrl+C received, shutting down...");
+                break;
+            },
 
-        if !internet_is_up()
-            .await
-            .context("Failed to check internet connectivity")?
-        {
-            if internet_outage_start_time.is_none() {
-                internet_outage_start_time = Some(Utc::now());
-                log::info!("The internet went down!");
+            _ = tokio::time::sleep(poll_duration) => {
+                if !internet_is_up()
+                    .await
+                    .context("Failed to check internet connectivity")?
+                {
+                    if internet_outage_start_time.is_none() {
+                        internet_outage_start_time = Some(Utc::now());
+                        log::info!("The internet went down!");
+                    }
+                } else if let Some(start_utc) = internet_outage_start_time.take() {
+                    let outage_duration = Utc::now() - start_utc;
+                    let duration_formatted =
+                        format_duration(Duration::from_secs(outage_duration.num_seconds() as u64))
+                            .to_string();
+
+                    let internet_outage_message = format!(
+                        "@everyone The internet went out at {} but is now back online. The outage lasted {}.",
+                        start_utc.with_timezone(&Pacific).format("%m/%d/%Y %r"),
+                        duration_formatted
+                    );
+                    log::info!("{}", internet_outage_message);
+                    send_discord_message(&http, &webhook, &internet_outage_message)
+                        .await
+                        .with_context(|| {
+                            format!("Failed to send Discord webhook to `{}`", config.webhook_url)
+                        })?;
+                }
             }
-        } else if let Some(start_utc) = internet_outage_start_time.take() {
-            let outage_duration = Utc::now() - start_utc;
-            let duration_formatted =
-                format_duration(Duration::from_secs(outage_duration.num_seconds() as u64))
-                    .to_string();
-
-            let internet_outage_message = format!(
-                "@everyone The internet went out at {} but is now back online. The outage lasted {}.",
-                start_utc.with_timezone(&Pacific).format("%m/%d/%Y %r"),
-                duration_formatted
-            );
-            log::info!("{}", internet_outage_message);
-            send_discord_message(&http, &webhook, &internet_outage_message)
-                .await
-                .with_context(|| {
-                    format!("Failed to send Discord webhook to {}", config.webhook_url)
-                })?;
         }
     }
+
+    log::info!("Notifier stopped.");
+    Ok(())
 }
