@@ -1,5 +1,7 @@
+use anyhow::{Context, Result};
 use chrono::{DateTime, TimeDelta, Utc};
 use chrono_tz::US::Pacific;
+use flexi_logger::{Duplicate, FileSpec, Logger, WriteMode};
 use serde::Deserialize;
 use serenity::builder::ExecuteWebhook;
 use serenity::http::Http;
@@ -56,11 +58,7 @@ async fn internet_is_up() -> Result<bool, std::io::Error> {
     Ok(ping_google_ip_result.success())
 }
 
-async fn send_discord_message(
-    http: &Http,
-    message: &str,
-    webhook_url: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn send_discord_message(http: &Http, message: &str, webhook_url: &str) -> Result<()> {
     let webhook = Webhook::from_url(http, webhook_url).await?;
     let builder = ExecuteWebhook::new().content(message).username("JoshBot");
 
@@ -68,15 +66,28 @@ async fn send_discord_message(
     Ok(())
 }
 
+fn init_logger() -> Result<()> {
+    Logger::try_with_str("info")?
+        .log_to_file(FileSpec::default().directory("logs").basename("app"))
+        .duplicate_to_stdout(Duplicate::All)
+        .write_mode(WriteMode::BufferAndFlush)
+        .format(|w, now, record| {
+            write!(
+                w,
+                "{} [{}] {}",
+                now.now().format("%m/%d/%Y %-I:%M:%S %p"),
+                record.level(),
+                record.args()
+            )
+        })
+        .start()?;
+    Ok(())
+}
+
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let script_start_time = Utc::now();
-    println!(
-        "Internet Outage Duration Discord Notifier 0.1.0 initialized on {}.",
-        script_start_time
-            .with_timezone(&Pacific)
-            .format("%m/%d/%Y %r")
-    );
+async fn main() -> Result<()> {
+    init_logger().context("Failed to initialize logger")?;
+    log::info!("Internet Outage Duration Discord Notifier v0.1.0 started");
 
     let toml_content = fs::read_to_string("config.toml")?;
     let config: Config = toml::from_str(&toml_content)?;
@@ -89,10 +100,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if internet_outage_start_time.is_none() {
                 let start_utc = Utc::now();
                 internet_outage_start_time = Some(start_utc);
-                println!(
-                    "The internet went down at {}!",
-                    start_utc.with_timezone(&Pacific).format("%m/%d/%Y %r")
-                );
+                log::info!("The internet went down!");
             }
         } else if let Some(start_utc) = internet_outage_start_time {
             let outage_duration = Utc::now() - start_utc;
@@ -102,6 +110,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 start_utc.with_timezone(&Pacific).format("%m/%d/%Y %r"),
                 outage_duration_hhmmss
             );
+            log::info!("{}", internet_outage_message);
             send_discord_message(&http, &internet_outage_message, &config.webhook_url).await?;
             internet_outage_start_time = None;
         }
