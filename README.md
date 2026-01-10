@@ -1,5 +1,5 @@
-# Internet Outage Duration Discord Notifier
-A simple tool for getting a discord message after an internet outage. Useful for tracking internet outages over time and determining if your ISP has a common outage time. Intended for usage on an OpenWRT router, but not optimized for size.
+# Internet Outage Notifier
+A simple tool for getting notifications when you internet goes out. Sends a ntfy message to your local server as soon as the internet goes out, and sends a discord message to your server once the internet is restored. Useful for tracking internet outages over time and determining if your ISP has a common outage time. Intended for usage on an OpenWRT router, but not optimized for size.
 
 Populate `config.toml` before running the program.
 
@@ -16,5 +16,13 @@ $ make build
 
 # Copying the binary to your router
 ```
-$ scp target/aarch64-unknown-linux-musl/release/internet_outage_duration_discord_notifier ROUTER:/root
+$ scp target/aarch64-unknown-linux-musl/release/internet_outage_notifier ROUTER:/root
+```
+
+# Example config
+```
+discord_webhook_url = "https://discord.com/api/webhooks/12345/abdef"
+ntfy_url = "https://ntfy.myserver.com/outages"
+enable_ntfy = true
+poll_seconds = 5
 ```

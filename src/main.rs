@@ -3,6 +3,7 @@ use chrono::{DateTime, Utc};
 use chrono_tz::US::Pacific;
 use flexi_logger::{Duplicate, FileSpec, Logger, WriteMode};
 use humantime::format_duration;
+use reqwest::Client;
 use serde::Deserialize;
 use serenity::builder::ExecuteWebhook;
 use serenity::http::Http;
@@ -23,7 +24,9 @@ const PING_ARGS: [&str; 3] = [GOOGLE_IP_ADDRESS, "-c", "3"];
 
 #[derive(Deserialize, Debug)]
 struct Config {
-    webhook_url: String,
+    discord_webhook_url: String,
+    ntfy_url: String,
+    enable_ntfy: bool,
     poll_seconds: u64,
 }
 
@@ -51,6 +54,19 @@ async fn send_discord_message(http: &Http, webhook: &Webhook, message: &str) -> 
     Ok(())
 }
 
+async fn send_ntfy_message(url: &str, message: &str) -> Result<()> {
+    let client = Client::new();
+
+    client
+        .post(url)
+        .body(message.to_string())
+        .send()
+        .await
+        .context(format!("Failed to send ntfy message to {}", url))?;
+
+    Ok(())
+}
+
 fn init_logger() -> Result<()> {
     Logger::try_with_str("info,serenity=warn")
         .context("Invalid logger configuration")?
@@ -74,7 +90,7 @@ fn init_logger() -> Result<()> {
 #[tokio::main]
 async fn main() -> Result<()> {
     init_logger().context("Failed to initialize logger")?;
-    log::info!("Internet Outage Duration Discord Notifier v1.0.0 started");
+    log::info!("Internet Outage Notifier v1.0.1 started");
 
     let config_file = "config.toml";
     let toml_content = fs::read_to_string(config_file)
@@ -87,13 +103,19 @@ async fn main() -> Result<()> {
         "Config option `poll_seconds` must be >= 3"
     );
     anyhow::ensure!(
-        !config.webhook_url.trim().is_empty(),
-        "Config option `webhook_url` is blank"
+        !config.discord_webhook_url.trim().is_empty(),
+        "Config option `discord_webhook_url` is blank"
     );
+    if config.enable_ntfy {
+        anyhow::ensure!(
+            !config.ntfy_url.trim().is_empty(),
+            "Config option `ntfy_url` is blank"
+        );
+    }
 
     // Webhooks don't require a bot token
     let http = Http::new("");
-    let webhook = Webhook::from_url(&http, &config.webhook_url)
+    let webhook = Webhook::from_url(&http, &config.discord_webhook_url)
         .await
         .context("Failed to create Discord webhook")?;
 
@@ -106,6 +128,9 @@ async fn main() -> Result<()> {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {
                 log::info!("Ctrl+C received, shutting down...");
+                if config.enable_ntfy {
+                    send_ntfy_message(&config.ntfy_url, "OutageNotifier shut down").await?;
+                }
                 break;
             },
 
@@ -113,8 +138,14 @@ async fn main() -> Result<()> {
                 match internet_is_up().await {
                     Ok(false) => {
                         if internet_outage_start_time.is_none() {
+                            let message = "The internet went down!";
+
                             internet_outage_start_time = Some(Utc::now());
-                            log::info!("The internet went down!");
+                            log::info!("{}", message);
+
+                            if config.enable_ntfy {
+                                send_ntfy_message(&config.ntfy_url, &message).await?;
+                            }
                         }
                     }
                     Ok(true) => {

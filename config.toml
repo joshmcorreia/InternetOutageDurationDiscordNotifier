@@ -1,2 +1,4 @@
-webhook_url = "REPLACE_ME"
+discord_webhook_url = ""
+ntfy_url = ""
+enable_ntfy = true
 poll_seconds = 5
