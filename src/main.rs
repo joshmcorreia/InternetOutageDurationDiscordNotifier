@@ -59,10 +59,10 @@ async fn send_ntfy_message(url: &str, message: &str) -> Result<()> {
 
     client
         .post(url)
+        .header("Priority", "5")
         .body(message.to_string())
         .send()
-        .await
-        .context(format!("Failed to send ntfy message to {}", url))?;
+        .await?;
 
     Ok(())
 }
@@ -90,7 +90,7 @@ fn init_logger() -> Result<()> {
 #[tokio::main]
 async fn main() -> Result<()> {
     init_logger().context("Failed to initialize logger")?;
-    log::info!("Internet Outage Notifier v1.0.1 started");
+    log::info!("InternetOutageNotifier v1.0.1 started");
 
     let config_file = "config.toml";
     let toml_content = fs::read_to_string(config_file)
@@ -128,9 +128,6 @@ async fn main() -> Result<()> {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {
                 log::info!("Ctrl+C received, shutting down...");
-                if config.enable_ntfy {
-                    send_ntfy_message(&config.ntfy_url, "OutageNotifier shut down").await?;
-                }
                 break;
             },
 
@@ -144,7 +141,9 @@ async fn main() -> Result<()> {
                             log::info!("{}", message);
 
                             if config.enable_ntfy {
-                                send_ntfy_message(&config.ntfy_url, &message).await?;
+                                if let Err(err) = send_ntfy_message(&config.ntfy_url, &message).await {
+                                    log::warn!("Failed to send ntfy message `{message}`: {err}");
+                                }
                             }
                         }
                     }
@@ -156,16 +155,19 @@ async fn main() -> Result<()> {
                                     .to_string();
 
                             let internet_outage_message = format!(
-                                "@everyone The internet went out at {} but is now back online. The outage lasted {}.",
+                                "The internet went out at {} but is now back online. The outage lasted {}.",
                                 start_utc.with_timezone(&Pacific).format("%m/%d/%Y %r"),
                                 duration_formatted
                             );
-                            log::info!("The internet is back online. The outage lasted {}.",
-                                duration_formatted
-                            );
+                            let internet_outage_message_discord = format!("@everyone {internet_outage_message}");
 
-                            if let Err(err) = send_discord_message(&http, &webhook, &internet_outage_message).await {
-                                log::error!("Failed to send Discord webhook: {:?}", err);
+                            log::info!("{}", internet_outage_message);
+                            if let Err(err) = send_ntfy_message(&config.ntfy_url, &internet_outage_message).await {
+                                log::warn!("Failed to send ntfy message `{internet_outage_message}`: {err}");
+                            }
+
+                            if let Err(err) = send_discord_message(&http, &webhook, &internet_outage_message_discord).await {
+                                log::warn!("Failed to send Discord message `{internet_outage_message_discord}` via webhook: {:?}", err);
                             }
                         }
                     }
@@ -177,6 +179,6 @@ async fn main() -> Result<()> {
         }
     }
 
-    log::info!("Notifier stopped.");
+    log::info!("InternetOutageNotifier stopped.");
     Ok(())
 }
