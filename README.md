@@ -16,7 +16,7 @@ $ make build
 
 # Copying the binary to your router
 ```
-$ scp target/aarch64-unknown-linux-musl/release/internet_outage_notifier ROUTER:/root
+$ scp config.toml target/aarch64-unknown-linux-musl/release/internet_outage_notifier ROUTER:/root
 ```
 
 # Example config
